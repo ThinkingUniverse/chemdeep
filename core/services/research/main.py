@@ -49,12 +49,24 @@ class DeepResearcher:
         # 1. 执行宽泛搜索
         raw_result = self.executor.execute(plan, max_per_source)
         raw_papers = raw_result.get("papers", [])
-        
+
         if not raw_papers:
             return raw_result
-            
+
         # 2. 执行 LLM 智能筛选
-        screened_papers = self.screener.screen_papers(plan.question, raw_papers)
+        question = getattr(plan, "question", None)
+        if not question:
+            # 兼容ResearchPlanV2
+            if isinstance(plan, dict):
+                question = plan.get("question")
+            elif hasattr(plan, "search_queries") and plan.search_queries:
+                # 尝试从查询生成文本
+                first_query = plan.search_queries[0]
+                question = first_query.get("query") or first_query.get("q")
+        if not question:
+            question = "deep research"
+
+        screened_papers = self.screener.screen_papers(question, raw_papers)
         
         # 3. 过滤并保留 Top N
         # 规则: >=9 必读, <=5 丢弃

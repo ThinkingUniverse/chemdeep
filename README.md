@@ -79,8 +79,10 @@ python main.py currentmodel
 ```
 
 #### 🔬 深度研究
+> 该命令现在支持与 Bot 一致的研究目标分析与澄清问题引导，帮助您生成明确的研究计划。
+
 ```bash
-# 执行完整深度研究（推荐）
+# 执行完整深度研究（含计划确认）
 python main.py research "有机合成新方法" --max-results 20
 
 # 快速模式（跳过计划确认）

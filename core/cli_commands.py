@@ -186,36 +186,56 @@ CHEMDEEP_GOOGLE_SCHOLAR_DELAY=5
         typer.echo("-" * 50)
         
         researcher = DeepResearcher(notify_callback=lambda x: typer.echo(x))
-        
+
         try:
             # 1. 生成研究计划
             typer.echo("📋 正在生成研究计划...")
             plan = researcher.generate_plan(query)
-            
-            # 创建兼容的计划对象，包含question属性
+
+            # 先生成澄清问题（和Bot一致）
+            clarifications = researcher.planner.generate_clarifying_questions(query)
+            if clarifications:
+                typer.echo("\n✍️  为了更好地定位研究需求，建议回答以下澄清问题：")
+                for idx, c in enumerate(clarifications,1):
+                    typer.echo(f"  {idx}. {c}")
+
+                # only ask interactive answers when not quick
+                clarification_text = ""
+                if not quick:
+                    answers = []
+                    for c in clarifications:
+                        ans = typer.prompt(f"请回答: {c} (可直接回车跳过)", default="")
+                        if ans:
+                            answers.append(ans)
+                    clarification_text = "\n".join([f"{i+1}. {a}" for i,a in enumerate(answers)])
+                    if clarification_text:
+                        typer.echo("\n✅ 已记录澄清问题回答（用于内部分析）：")
+                        typer.echo(clarification_text)
+
+            # 兼容ResearchPlanV2（旧API依赖question字段）
             class CompatiblePlan:
-                def __init__(self, plan_v2, question):
+                def __init__(self, plan_v2, question, clarifications):
                     self.question = question
-                    # 复制其他属性
+                    self.clarifications = clarifications
                     for attr in dir(plan_v2):
-                        if not attr.startswith('_'):
+                        if not attr.startswith('_') and not hasattr(self, attr):
                             setattr(self, attr, getattr(plan_v2, attr))
-            
-            compatible_plan = CompatiblePlan(plan, query)
-            
+
+            compatible_plan = CompatiblePlan(plan, query, clarification_text if not quick else "")
+
+            # 显示研究计划文本
             if not quick:
-                # 显示计划并等待确认
                 plan_text = researcher.format_plan(compatible_plan)
                 typer.echo("\n" + "="*50)
                 typer.echo("📋 研究计划:")
                 typer.echo("="*50)
                 typer.echo(plan_text)
                 typer.echo("="*50)
-                
+
                 if not typer.confirm("是否按此计划执行研究?"):
                     typer.echo("❌ 已取消")
                     return
-            
+
             # 2. 执行搜索
             typer.echo("\n🔍 正在执行文献搜索...")
             search_result = researcher.execute_search(compatible_plan, max_per_source=50, top_n=max_results)
