@@ -43,6 +43,19 @@
 
 ## 全文抓取与授权边界
 
+默认是否尝试全文抓取可通过环境变量 `CHEMDEEP_DEFAULT_FETCH_FULL_TEXT` 控制：
+
+- `0`：默认不抓取全文，只有显式传入 `fetch_full_text=true` 才尝试抓取
+- `1`：默认尝试抓取全文，但仍可在单次 MCP 调用中用 `fetch_full_text=false` 关闭
+
+该默认值同时影响 `search_papers`、`search_lanfanshu`、`get_paper_details`，以及 `run_deep_research` 中的全文获取阶段。
+
+另外，如果调用文本里已经明确表达“看全文”“抓正文”“下载 PDF”“full text”“download pdf”等意图，而本次请求没有显式传 `fetch_full_text`，MCP 也会自动按“需要抓全文”处理。显式参数仍然优先级最高：
+
+- 传 `fetch_full_text=true`：强制抓全文
+- 传 `fetch_full_text=false`：强制不抓全文
+- 不传：先看请求文本是否明确要求全文/PDF，再回退到环境变量默认值
+
 ChemDeep 的全文抓取与 PDF 下载能力遵循以下原则：
 
 - **不绕过付费墙**：不会生成、伪造或扩大用户权限
@@ -142,6 +155,8 @@ pip install mcp
     "CHEMDEEP_OPENAI_MODEL": "gpt-4o-mini",
     "CHEMDEEP_OPENAI_API_BASE": "https://api.openai.com/v1",
     "CHEMDEEP_OPENAI_API_KEY": "<your-api-key>",
+    "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/",
+    "CHEMDEEP_LANFANSHU_MIRROR_URLS": "",
     "CHEMDEEP_GEMINI_MODEL": "gemini-2.0-flash",
     "CHEMDEEP_GEMINI_API_KEY": "<your-gemini-api-key>"
   }
@@ -161,6 +176,8 @@ pip install mcp
     "CHEMDEEP_OPENAI_MODEL": "gpt-4o-mini",
     "CHEMDEEP_OPENAI_API_BASE": "https://api.openai.com/v1",
     "CHEMDEEP_OPENAI_API_KEY": "<your-api-key>",
+    "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/",
+    "CHEMDEEP_LANFANSHU_MIRROR_URLS": "",
     "CHEMDEEP_GEMINI_MODEL": "gemini-2.0-flash",
     "CHEMDEEP_GEMINI_API_KEY": "<your-gemini-api-key>"
   }
@@ -187,10 +204,29 @@ pip install mcp
         "CHEMDEEP_OPENAI_MODEL": "gpt-4o-mini",
         "CHEMDEEP_OPENAI_API_BASE": "https://api.openai.com/v1",
         "CHEMDEEP_OPENAI_API_KEY": "<your-api-key>",
+        "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/",
+        "CHEMDEEP_LANFANSHU_MIRROR_URLS": "",
         "CHEMDEEP_GEMINI_MODEL": "gemini-2.0-flash",
         "CHEMDEEP_GEMINI_API_KEY": "<your-gemini-api-key>"
       }
     }
+  }
+}
+```
+
+## Scholar 镜像导航配置
+
+- `CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS`：镜像导航页集合。这里填的是导航地址，不是单个镜像地址；支持多个值，用逗号或分号分隔。
+- `CHEMDEEP_LANFANSHU_MIRROR_URLS`：可选的直连镜像补充列表；当导航页失效、解析不到结果、或者需要注入私有镜像时使用。
+- Python 主项目读取 `config/.env`，Node MCP 读取 `config/paper-search-mcp-nodejs.env`，Cherry Studio / OpenClaw 的 MCP `env` 也可以覆盖这两个值。
+
+示例：
+
+```json
+{
+  "env": {
+    "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/;https://your-nav.example.com/",
+    "CHEMDEEP_LANFANSHU_MIRROR_URLS": "https://scholar.lanfanshu.cn,https://sc.panda985.com"
   }
 }
 ```

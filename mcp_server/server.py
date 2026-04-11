@@ -14,6 +14,7 @@ Skills 概览:
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, List, Optional
@@ -44,6 +45,70 @@ logger = logging.getLogger("chemdeep-mcp")
 FULL_TEXT_FETCH_TIMEOUT_SECONDS = 12.0
 FULL_TEXT_FETCH_COLD_START_TIMEOUT_SECONDS = 90.0
 FULL_TEXT_FETCH_BROWSER_CDP_PORT = 9222
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+FULL_TEXT_REQUEST_CUES = (
+    "全文",
+    "原文",
+    "正文",
+    "看全文",
+    "抓全文",
+    "获取全文",
+    "抓正文",
+    "获取正文",
+    "全文预览",
+    "下载pdf",
+    "下载 pdf",
+    "pdf下载",
+    "view pdf",
+    "download pdf",
+    "full text",
+    "full-text",
+    "publisher full text",
+)
+
+
+def detect_explicit_full_text_request(
+    arguments: dict[str, Any],
+    *,
+    context_keys: tuple[str, ...] = (),
+) -> bool:
+    """Detect whether the request text explicitly asks for full text or PDF retrieval."""
+    for key in context_keys:
+        value = arguments.get(key)
+        if not isinstance(value, str):
+            continue
+
+        normalized = " ".join(value.strip().lower().split())
+        if not normalized:
+            continue
+
+        if any(cue in normalized for cue in FULL_TEXT_REQUEST_CUES):
+            return True
+
+    return False
+
+
+def resolve_fetch_full_text_argument(
+    arguments: dict[str, Any],
+    *,
+    context_keys: tuple[str, ...] = (),
+) -> tuple[bool, str]:
+    """Resolve full-text fetch preference from args, explicit request text, or env default."""
+    value = arguments.get("fetch_full_text")
+    if value is None:
+        if detect_explicit_full_text_request(arguments, context_keys=context_keys):
+            return True, "explicit_request_detected"
+        return _env_bool("CHEMDEEP_DEFAULT_FETCH_FULL_TEXT", False), "env_default"
+    return bool(value), "explicit_argument"
+
 
 # 创建 MCP 服务器
 server = Server(name="chemdeep", version="0.1.0")
@@ -141,7 +206,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="search_papers",
-            description="通用多源学术论文搜索工具，支持 OpenAlex、CrossRef、烂番薯学术等搜索源；默认返回搜索结果与摘要，不主动抓取全文/正文；仅在显式传入 fetch_full_text=true 时，才会尝试抓取前几篇论文全文/正文；如需明确使用烂番薯学术，优先调用 search_lanfanshu。",
+            description="通用多源学术论文搜索工具，支持 OpenAlex、CrossRef、烂番薯学术等搜索源；默认是否主动抓取全文/正文由环境变量 CHEMDEEP_DEFAULT_FETCH_FULL_TEXT 控制，也可用 fetch_full_text 显式覆盖；若 query 中明确提出看全文、抓正文或下载 PDF，且未显式传 fetch_full_text，则会自动尝试全文抓取；如需明确使用烂番薯学术，优先调用 search_lanfanshu。",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -168,8 +233,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "fetch_full_text": {
                         "type": "boolean",
-                        "description": "是否主动抓取论文全文/正文（默认 False；仅显式开启时尝试抓取，失败时自动回退到摘要）",
-                        "default": True,
+                        "description": "是否主动抓取论文全文/正文（未传时优先根据请求文本中的明确全文/PDF 意图自动开启，否则跟随环境变量 CHEMDEEP_DEFAULT_FETCH_FULL_TEXT；失败时自动回退到摘要）",
                     },
                     "max_full_texts": {
                         "type": "integer",
@@ -182,7 +246,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_lanfanshu",
-            description="烂番薯学术专用搜索工具。该工具会强制仅使用烂番薯学术搜索源，默认返回搜索结果与摘要，不主动抓取全文/正文；仅在显式传入 fetch_full_text=true 时，才会尝试抓取前几篇论文全文/正文，便于 Cherry Studio 明确选择并调用烂番薯。",
+            description="烂番薯学术专用搜索工具。该工具会强制仅使用烂番薯学术搜索源，默认是否主动抓取全文/正文由环境变量 CHEMDEEP_DEFAULT_FETCH_FULL_TEXT 控制，也可用 fetch_full_text 显式覆盖；若 query 中明确提出看全文、抓正文或下载 PDF，且未显式传 fetch_full_text，则会自动尝试全文抓取，便于 Cherry Studio 明确选择并调用烂番薯。",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -203,8 +267,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "fetch_full_text": {
                         "type": "boolean",
-                        "description": "是否主动抓取论文全文/正文（默认 false；仅显式开启时尝试抓取，失败时自动回退到摘要）",
-                        "default": False,
+                        "description": "是否主动抓取论文全文/正文（未传时优先根据请求文本中的明确全文/PDF 意图自动开启，否则跟随环境变量 CHEMDEEP_DEFAULT_FETCH_FULL_TEXT；失败时自动回退到摘要）",
                     },
                     "max_full_texts": {
                         "type": "integer",
@@ -217,7 +280,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_paper_details",
-            description="获取论文的详细信息；默认返回论文元数据与摘要，不主动抓取正文/全文；仅在显式传入 fetch_full_text=true 时，才会尝试抓取正文/全文，失败时自动回退到摘要。",
+            description="获取论文的详细信息；默认是否主动抓取正文/全文由环境变量 CHEMDEEP_DEFAULT_FETCH_FULL_TEXT 控制，也可用 fetch_full_text 显式覆盖；若 title 中明确提出看全文、抓正文或下载 PDF，且未显式传 fetch_full_text，则会自动尝试全文抓取；失败时自动回退到摘要。",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -231,8 +294,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "fetch_full_text": {
                         "type": "boolean",
-                        "description": "是否主动抓取论文全文/正文（默认 false；仅显式开启时尝试抓取，失败时自动回退到摘要）",
-                        "default": False,
+                        "description": "是否主动抓取论文全文/正文（未传时优先根据请求文本中的明确全文/PDF 意图自动开启，否则跟随环境变量 CHEMDEEP_DEFAULT_FETCH_FULL_TEXT；失败时自动回退到摘要）",
                     },
                 },
             },
@@ -251,6 +313,18 @@ async def list_tools() -> list[Tool]:
                     "purpose": {
                         "type": "string",
                         "description": "可选，本次准备会话的用途说明，例如 ScienceDirect PDF 下载、全文抓取等。",
+                    },
+                    "article_url": {
+                        "type": "string",
+                        "description": "可选，启动或连接 Edge 后希望自动打开的论文链接。",
+                    },
+                    "doi": {
+                        "type": "string",
+                        "description": "可选，若未提供 article_url，可基于 DOI 自动构造并打开论文链接。",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "可选，论文标题，仅用于返回结果说明。",
                     },
                 },
             },
@@ -379,9 +453,18 @@ async def list_tools() -> list[Tool]:
                         "properties": {
                             "goal": {"type": "string"},
                             "research_object": {"type": "string"},
-                            "control_variables": {"type": "array", "items": {"type": "string"}},
-                            "performance_metrics": {"type": "array", "items": {"type": "string"}},
-                            "constraints": {"type": "array", "items": {"type": "string"}},
+                            "control_variables": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "performance_metrics": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "constraints": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
                             "domain": {"type": "string"},
                         },
                     },
@@ -430,8 +513,14 @@ async def list_tools() -> list[Tool]:
                         "properties": {
                             "goal": {"type": "string"},
                             "research_object": {"type": "string"},
-                            "control_variables": {"type": "array", "items": {"type": "string"}},
-                            "performance_metrics": {"type": "array", "items": {"type": "string"}},
+                            "control_variables": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "performance_metrics": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
                         },
                     },
                     **REQUEST_LLM_OVERRIDE_PROPERTIES,
@@ -460,9 +549,18 @@ async def list_tools() -> list[Tool]:
                             "properties": {
                                 "hypothesis_id": {"type": "string"},
                                 "mechanism_description": {"type": "string"},
-                                "required_variables": {"type": "array", "items": {"type": "string"}},
-                                "irrelevant_variables": {"type": "array", "items": {"type": "string"}},
-                                "falsifiable_conditions": {"type": "array", "items": {"type": "string"}},
+                                "required_variables": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "irrelevant_variables": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "falsifiable_conditions": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
                                 "expected_performance_trend": {"type": "string"},
                             },
                         },
@@ -476,7 +574,10 @@ async def list_tools() -> list[Tool]:
                                 "implementation": {"type": "string"},
                                 "key_variables": {"type": "object"},
                                 "performance_results": {"type": "object"},
-                                "limitations": {"type": "array", "items": {"type": "string"}},
+                                "limitations": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
                                 "paper_title": {"type": "string"},
                                 "doi": {"type": "string"},
                             },
@@ -510,7 +611,10 @@ async def list_tools() -> list[Tool]:
                                 "implementation": {"type": "string"},
                                 "key_variables": {"type": "object"},
                                 "performance_results": {"type": "object"},
-                                "limitations": {"type": "array", "items": {"type": "string"}},
+                                "limitations": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
                                 "method_category": {"type": "string"},
                                 "paper_title": {"type": "string"},
                             },
@@ -547,8 +651,14 @@ async def list_tools() -> list[Tool]:
                             "properties": {
                                 "hypothesis_id": {"type": "string"},
                                 "mechanism_description": {"type": "string"},
-                                "required_variables": {"type": "array", "items": {"type": "string"}},
-                                "falsifiable_conditions": {"type": "array", "items": {"type": "string"}},
+                                "required_variables": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "falsifiable_conditions": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
                                 "expected_performance_trend": {"type": "string"},
                                 "status": {"type": "string"},
                             },
@@ -575,8 +685,14 @@ async def list_tools() -> list[Tool]:
                             "properties": {
                                 "mechanism_type": {"type": "string"},
                                 "core_idea": {"type": "string"},
-                                "advantages": {"type": "array", "items": {"type": "string"}},
-                                "limitations": {"type": "array", "items": {"type": "string"}},
+                                "advantages": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "limitations": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
                             },
                         },
                         "description": "技术路线簇列表（可选；来自 cluster_methods 输出）",
@@ -622,6 +738,10 @@ async def list_tools() -> list[Tool]:
                     "previous_context": {
                         "type": "string",
                         "description": "之前研究的上下文信息（用于在已有研究基础上深化）",
+                    },
+                    "fetch_full_text": {
+                        "type": "boolean",
+                        "description": "是否在深度研究流程中尝试抓取全文（未传时优先根据 goal/previous_context 中的明确全文/PDF 意图自动开启，否则跟随环境变量 CHEMDEEP_DEFAULT_FETCH_FULL_TEXT）",
                     },
                     **REQUEST_LLM_OVERRIDE_PROPERTIES,
                     "llm_config": LLM_CONFIG_SCHEMA,
@@ -700,19 +820,53 @@ def clean_paper(paper: dict) -> dict:
     return cleaned
 
 
+def is_valid_paper(paper: dict) -> bool:
+    """检查是否为有效的论文记录，过滤 Zod 验证错误等异常对象"""
+    # 过滤 Zod 验证错误对象（包含 code, expected, received, path 等字段）
+    if paper.get("code") == "invalid_type":
+        return False
+    if "expected" in paper and "received" in paper and "path" in paper:
+        return False
+    # 有效论文至少要有 title 或 doi
+    return bool(paper.get("title") or paper.get("doi"))
+
+
+def is_valid_paper(paper: dict) -> bool:
+    """检查是否为有效的论文记录，过滤 Zod 验证错误等异常对象"""
+    # 过滤 Zod 验证错误对象（包含 code, expected, received, path 等字段）
+    if paper.get("code") == "invalid_type":
+        return False
+    if "expected" in paper and "received" in paper and "path" in paper:
+        return False
+    # 有效论文至少要有 title 或 doi
+    return bool(paper.get("title") or paper.get("doi"))
+
+
 def execute_search_source(
-    mcp: Any, query: str, source: str, max_results: int
+    mcp: Any, query: str, source: str, max_results: int, min_year: Optional[int] = None
 ) -> dict[str, Any]:
     """根据 source 分派到底层搜索实现"""
+    # [P-LFS] 烂番薯学术查询预处理
     if source == "lanfanshu":
-        return mcp.search_lanfanshu(query, max_results)
+        from utils.query_sanitizer import sanitize_lanfanshu_query
+
+        query = sanitize_lanfanshu_query(query)
+
+    # 将 min_year 转为字符串，因为 Node.js MCP 工具的 Zod schema 期望 year 为 string
+    year_str = str(min_year) if min_year is not None else None
+
+    if source == "lanfanshu":
+        opts = {}
+        if year_str is not None:
+            opts["yearLow"] = year_str
+        return mcp.search_lanfanshu(query, max_results, **opts)
     if source == "openalex":
-        return mcp.search_openalex(query, max_results)
+        return mcp.search_openalex(query, max_results, year=year_str)
     if source == "crossref":
-        return mcp.search_papers(query, "crossref", max_results)
+        return mcp.search_papers(query, "crossref", max_results, year=year_str)
     if source == "scholar":
-        return mcp.search_google_scholar(query, max_results)
-    return mcp.search_papers(query, source, max_results)
+        return mcp.search_google_scholar(query, max_results, yearLow=year_str)
+    return mcp.search_papers(query, source, max_results, year=year_str)
 
 
 async def run_search_request(
@@ -727,7 +881,10 @@ async def run_search_request(
     max_results = arguments.get("max_results", 10)
     min_year = arguments.get("min_year")
     fetch_abstracts = arguments.get("fetch_abstracts", True)
-    fetch_full_text = arguments.get("fetch_full_text", False)
+    fetch_full_text, fetch_full_text_source = resolve_fetch_full_text_argument(
+        arguments,
+        context_keys=("query",),
+    )
     max_full_texts = arguments.get("max_full_texts", 3)
 
     search_sources = (
@@ -760,7 +917,9 @@ async def run_search_request(
                 source,
             )
             try:
-                result = execute_search_source(mcp, query, source, max_results * 2)
+                result = execute_search_source(
+                    mcp, query, source, max_results * 2, min_year=min_year
+                )
                 if result.get("success"):
                     source_papers = result.get("papers", [])
                     all_papers.extend(source_papers)
@@ -787,6 +946,19 @@ async def run_search_request(
 
         papers = [clean_paper(p) for p in all_papers]
 
+        # 过滤 Zod 验证错误等异常对象（这些不应作为论文记录返回）
+        valid_papers = []
+        for p in papers:
+            if is_valid_paper(p):
+                valid_papers.append(p)
+            else:
+                logger.warning(
+                    "过滤无效论文记录: title=%s, code=%s",
+                    p.get("title", ""),
+                    p.get("code", ""),
+                )
+        papers = valid_papers
+
         seen_dois = set()
         unique_papers = []
         for p in papers:
@@ -799,7 +971,9 @@ async def run_search_request(
         papers = unique_papers
 
         if fetch_abstracts:
-            papers = await fetch_missing_abstracts(papers, max_count=min(len(papers), 10))
+            papers = await fetch_missing_abstracts(
+                papers, max_count=min(len(papers), 10)
+            )
 
         if min_year:
             from core.services.research.paper_scorer import paper_scorer
@@ -843,6 +1017,8 @@ async def run_search_request(
             "query": query,
             "total_found": len(papers),
             "sources_used": search_sources,
+            "fetch_full_text": fetch_full_text,
+            "fetch_full_text_source": fetch_full_text_source,
             "papers": papers,
         }
         if full_text_fetch_status is not None:
@@ -959,7 +1135,6 @@ async def resolve_full_text_fetch_timeout(
     return effective_timeout_seconds, "cold_start", False
 
 
-
 def apply_full_text_fallback_status(
     papers: list[dict],
     attempted_dois: set[str],
@@ -1026,7 +1201,9 @@ async def enrich_papers_with_full_text(
             break
 
     attempted_dois = {
-        (paper.get("doi") or "").strip().lower() for paper in candidates if paper.get("doi")
+        (paper.get("doi") or "").strip().lower()
+        for paper in candidates
+        if paper.get("doi")
     }
 
     if status is not None:
@@ -1047,9 +1224,11 @@ async def enrich_papers_with_full_text(
             )
         return papers
 
-    effective_timeout_seconds, timeout_mode, browser_ready = (
-        await resolve_full_text_fetch_timeout(timeout_seconds)
-    )
+    (
+        effective_timeout_seconds,
+        timeout_mode,
+        browser_ready,
+    ) = await resolve_full_text_fetch_timeout(timeout_seconds)
     if status is not None:
         status.update(
             {
@@ -1144,9 +1323,7 @@ async def enrich_papers_with_full_text(
         return papers
     except asyncio.TimeoutError:
         strategy_label = "热启动" if timeout_mode == "warm" else "冷启动"
-        message = (
-            f"全文抓取采用{strategy_label}超时策略，超过 {effective_timeout_seconds:.1f}s，已回退为原始搜索/详情结果。"
-        )
+        message = f"全文抓取采用{strategy_label}超时策略，超过 {effective_timeout_seconds:.1f}s，已回退为原始搜索/详情结果。"
         logger.warning(message)
         apply_full_text_fallback_status(
             papers,
@@ -1167,7 +1344,9 @@ async def enrich_papers_with_full_text(
         return papers
     except Exception as e:
         strategy_label = "热启动" if timeout_mode == "warm" else "冷启动"
-        message = f"主动抓取全文失败（{strategy_label}超时策略），将继续返回摘要结果: {e}"
+        message = (
+            f"主动抓取全文失败（{strategy_label}超时策略），将继续返回摘要结果: {e}"
+        )
         logger.warning(message)
         apply_full_text_fallback_status(
             papers,
@@ -1192,7 +1371,10 @@ async def handle_get_paper_details(arguments: dict) -> list[TextContent]:
     """获取论文详细信息"""
     doi = arguments.get("doi", "")
     title = arguments.get("title", "")
-    fetch_full_text = arguments.get("fetch_full_text", False)
+    fetch_full_text, fetch_full_text_source = resolve_fetch_full_text_argument(
+        arguments,
+        context_keys=("title",),
+    )
 
     logger.info(f"获取论文详情: DOI={doi}, Title={title[:50] if title else ''}")
 
@@ -1298,6 +1480,9 @@ async def handle_get_paper_details(arguments: dict) -> list[TextContent]:
             result["paper"] = enriched[0]
             result["full_text_fetch"] = full_text_fetch_status
 
+        result["fetch_full_text"] = fetch_full_text
+        result["fetch_full_text_source"] = fetch_full_text_source
+
         return [
             TextContent(
                 type="text", text=json.dumps(result, ensure_ascii=False, indent=2)
@@ -1317,9 +1502,16 @@ async def handle_prepare_live_browser_session(arguments: dict) -> list[TextConte
     """准备实时浏览器会话，用于受限站点全文抓取与 PDF 下载。"""
     launch_if_needed = arguments.get("launch_if_needed", True)
     purpose = arguments.get("purpose", "")
+    article_url = arguments.get("article_url", "")
+    doi = arguments.get("doi", "")
+    title = arguments.get("title", "")
 
     try:
-        from core.browser.edge_launcher import is_real_browser_running, launch_real_edge_with_cdp
+        from core.browser.edge_launcher import (
+            is_real_browser_running,
+            launch_real_edge_with_cdp,
+        )
+        from core.services.research.content_fetch import build_article_url
 
         browser_ready = await asyncio.to_thread(
             is_real_browser_running,
@@ -1337,10 +1529,14 @@ async def handle_prepare_live_browser_session(arguments: dict) -> list[TextConte
             browser_ready = launch_success
 
         status = "ready" if browser_ready else "manual_action_required"
+        target_url = build_article_url(doi, article_url)
         result = {
             "success": browser_ready,
             "status": status,
             "purpose": purpose,
+            "doi": doi,
+            "title": title,
+            "target_url": target_url,
             "debug_port": FULL_TEXT_FETCH_BROWSER_CDP_PORT,
             "browser_ready": browser_ready,
             "launch_attempted": launch_attempted,
@@ -1355,8 +1551,45 @@ async def handle_prepare_live_browser_session(arguments: dict) -> list[TextConte
             ],
         }
 
+        if browser_ready and target_url:
+            try:
+                import httpx
+                from urllib.parse import quote
+
+                async with httpx.AsyncClient(timeout=5) as client:
+                    cdp_new_url = (
+                        f"http://127.0.0.1:{FULL_TEXT_FETCH_BROWSER_CDP_PORT}"
+                        f"/json/new?{quote(target_url, safe=':/?&=%#')}"
+                    )
+                    # Newer Edge/Chrome requires PUT for /json/new
+                    resp = await client.put(cdp_new_url)
+                    if resp.status_code == 405:
+                        # Fallback for older CDP versions that accept GET
+                        resp = await client.get(cdp_new_url)
+                    if resp.status_code == 200:
+                        result["navigation_attempted"] = True
+                        result["navigation_status"] = "opened"
+                    else:
+                        result["navigation_attempted"] = True
+                        result["navigation_status"] = "failed"
+                        result["navigation_error"] = (
+                            f"CDP 新建页面失败: HTTP {resp.status_code}"
+                        )
+            except Exception as nav_exc:
+                result["navigation_attempted"] = True
+                result["navigation_status"] = "failed"
+                result["navigation_error"] = str(nav_exc)
+        else:
+            result["navigation_attempted"] = bool(target_url)
+            if target_url and not browser_ready:
+                result["navigation_status"] = "skipped_browser_not_ready"
+            elif not target_url:
+                result["navigation_status"] = "skipped_no_target_url"
+
         if launch_message == "PROFILE_LOCKED":
-            result["error"] = "检测到系统中已有 Edge 进程但未开放 CDP 端口，请关闭冲突 Edge 进程后重试，或手动按远程调试方式启动专用会话。"
+            result["error"] = (
+                "检测到系统中已有 Edge 进程但未开放 CDP 端口，请关闭冲突 Edge 进程后重试，或手动按远程调试方式启动专用会话。"
+            )
         elif not browser_ready and launch_attempted and launch_message:
             result["error"] = launch_message
 
@@ -1383,7 +1616,9 @@ async def handle_download_paper_pdf(arguments: dict) -> list[TextContent]:
         from core.services.research.content_fetch import download_pdf_for_paper
 
         result = await asyncio.to_thread(download_pdf_for_paper, doi, title, None)
-        result["legal_notice"] = "该工具仅复用当前浏览器中的合法授权会话，不会尝试绕过付费墙或创建新权限。"
+        result["legal_notice"] = (
+            "该工具仅复用当前浏览器中的合法授权会话，不会尝试绕过付费墙或创建新权限。"
+        )
         result["recommended_next_steps"] = [
             "如下载失败，先调用 prepare_live_browser_session 并在浏览器里完成登录/验证。",
             "如已具备会话，也可使用 get_paper_details(fetch_full_text=true) 或 search_papers(fetch_full_text=true) 抓取正文预览。",
@@ -1486,7 +1721,7 @@ async def handle_analyze_gaps(arguments: dict) -> list[TextContent]:
 
 # ── 证据验证设计 Prompt ──
 
-VERIFICATION_PLAN_PROMPT = '''你是一位资深的科研方法学专家。请基于以下机理假设和已有证据，为每个活跃假设设计严谨的实验/计算验证方案。
+VERIFICATION_PLAN_PROMPT = """你是一位资深的科研方法学专家。请基于以下机理假设和已有证据，为每个活跃假设设计严谨的实验/计算验证方案。
 
 ## 研究目标
 {goal}
@@ -1541,7 +1776,7 @@ VERIFICATION_PLAN_PROMPT = '''你是一位资深的科研方法学专家。请�
   ],
   "overall_recommendations": "综合建议与验证路线图",
   "estimated_total_duration": "总体预估耗时"
-}}'''
+}}"""
 
 
 async def handle_formalize_research_goal(arguments: dict) -> list[TextContent]:
@@ -1561,6 +1796,7 @@ async def handle_formalize_research_goal(arguments: dict) -> list[TextContent]:
             ai = create_ai_client(llm_config=llm_config)
             # 将 ai client 注入到全局（临时），因为 formalize_problem 使用 get_ai_client()
             import core.ai as ai_module
+
             _prev_client = ai_module._ai_client_instance
             ai_module._ai_client_instance = ai
             try:
@@ -1603,7 +1839,9 @@ async def handle_generate_hypotheses(arguments: dict) -> list[TextContent]:
             ProblemSpec,
             IterativeResearchState,
         )
-        from core.services.research.hypothesis_generator import generate_hypotheses as gen_hyp
+        from core.services.research.hypothesis_generator import (
+            generate_hypotheses as gen_hyp,
+        )
 
         # 如果传入了 problem_spec 则直接使用
         if problem_spec_data and isinstance(problem_spec_data, dict):
@@ -1611,6 +1849,7 @@ async def handle_generate_hypotheses(arguments: dict) -> list[TextContent]:
         elif goal:
             # 自动执行形式化
             from core.services.research.formalizer import formalize_problem
+
             spec = formalize_problem(goal)
         else:
             return [
@@ -1631,6 +1870,7 @@ async def handle_generate_hypotheses(arguments: dict) -> list[TextContent]:
         if llm_config:
             from core.ai import create_ai_client
             import core.ai as ai_module
+
             ai = create_ai_client(llm_config=llm_config)
             _prev_client = ai_module._ai_client_instance
             ai_module._ai_client_instance = ai
@@ -1681,7 +1921,9 @@ async def handle_extract_evidence(arguments: dict) -> list[TextContent]:
             ProblemSpec,
             IterativeResearchState,
         )
-        from core.services.research.evidence_extractor import extract_evidence as extract_ev
+        from core.services.research.evidence_extractor import (
+            extract_evidence as extract_ev,
+        )
 
         spec = ProblemSpec.from_dict(problem_spec_data)
 
@@ -1696,6 +1938,7 @@ async def handle_extract_evidence(arguments: dict) -> list[TextContent]:
         if llm_config:
             from core.ai import create_ai_client
             import core.ai as ai_module
+
             ai = create_ai_client(llm_config=llm_config)
             _prev_client = ai_module._ai_client_instance
             ai_module._ai_client_instance = ai
@@ -1744,13 +1987,15 @@ async def handle_evaluate_hypotheses(arguments: dict) -> list[TextContent]:
             HypothesisSet,
             Evidence,
         )
-        from core.services.research.hypothesis_evaluator import evaluate_hypotheses as eval_hyp
+        from core.services.research.hypothesis_evaluator import (
+            evaluate_hypotheses as eval_hyp,
+        )
 
         # 重建 Hypothesis 对象
         hypotheses = []
         for h_data in hypotheses_data:
             h = Hypothesis(
-                hypothesis_id=h_data.get("hypothesis_id", f"H{len(hypotheses)+1}"),
+                hypothesis_id=h_data.get("hypothesis_id", f"H{len(hypotheses) + 1}"),
                 mechanism_description=h_data.get("mechanism_description", ""),
                 required_variables=h_data.get("required_variables", []),
                 irrelevant_variables=h_data.get("irrelevant_variables", []),
@@ -1790,6 +2035,7 @@ async def handle_evaluate_hypotheses(arguments: dict) -> list[TextContent]:
         if llm_config:
             from core.ai import create_ai_client
             import core.ai as ai_module
+
             ai = create_ai_client(llm_config=llm_config)
             _prev_client = ai_module._ai_client_instance
             ai_module._ai_client_instance = ai
@@ -1803,18 +2049,25 @@ async def handle_evaluate_hypotheses(arguments: dict) -> list[TextContent]:
         # 序列化结果
         evaluation_results = []
         for h in state.hypothesis_set.hypotheses:
-            evaluation_results.append({
-                **h.to_dict(),
-                "supporting_evidence_count": h.supporting_evidence_count,
-                "conflicting_evidence_count": h.conflicting_evidence_count,
-            })
+            evaluation_results.append(
+                {
+                    **h.to_dict(),
+                    "supporting_evidence_count": h.supporting_evidence_count,
+                    "conflicting_evidence_count": h.conflicting_evidence_count,
+                }
+            )
 
         result = {
             "success": True,
             "evaluation_results": evaluation_results,
             "active_count": len(state.hypothesis_set.get_active_hypotheses()),
-            "rejected_count": len([h for h in state.hypothesis_set.hypotheses
-                                   if h.status.value == "rejected"]),
+            "rejected_count": len(
+                [
+                    h
+                    for h in state.hypothesis_set.hypotheses
+                    if h.status.value == "rejected"
+                ]
+            ),
         }
 
         return [
@@ -1840,7 +2093,9 @@ async def handle_cluster_methods(arguments: dict) -> list[TextContent]:
 
     try:
         from core.services.research.core_types import Evidence
-        from core.services.research.method_clusterer import cluster_methods as do_cluster
+        from core.services.research.method_clusterer import (
+            cluster_methods as do_cluster,
+        )
 
         # 重建 Evidence 对象
         evidence_list = []
@@ -1861,6 +2116,7 @@ async def handle_cluster_methods(arguments: dict) -> list[TextContent]:
         if llm_config:
             from core.ai import create_ai_client
             import core.ai as ai_module
+
             ai = create_ai_client(llm_config=llm_config)
             _prev_client = ai_module._ai_client_instance
             ai_module._ai_client_instance = ai
@@ -1873,23 +2129,26 @@ async def handle_cluster_methods(arguments: dict) -> list[TextContent]:
 
         # 序列化 MethodCluster
         from dataclasses import asdict
+
         clusters_output = []
         for c in clusters:
-            clusters_output.append({
-                "cluster_id": c.cluster_id,
-                "mechanism_type": c.mechanism_type,
-                "core_idea": c.core_idea,
-                "paper_count": c.paper_count,
-                "representative_papers": c.representative_papers,
-                "typical_structures": c.typical_structures,
-                "target_applications": c.target_applications,
-                "advantages": c.advantages,
-                "limitations": c.limitations,
-                "synthetic_difficulty": c.synthetic_difficulty,
-                "novelty_saturation": c.novelty_saturation,
-                "innovation_angles": c.innovation_angles,
-                "overall_score": c.overall_score,
-            })
+            clusters_output.append(
+                {
+                    "cluster_id": c.cluster_id,
+                    "mechanism_type": c.mechanism_type,
+                    "core_idea": c.core_idea,
+                    "paper_count": c.paper_count,
+                    "representative_papers": c.representative_papers,
+                    "typical_structures": c.typical_structures,
+                    "target_applications": c.target_applications,
+                    "advantages": c.advantages,
+                    "limitations": c.limitations,
+                    "synthetic_difficulty": c.synthetic_difficulty,
+                    "novelty_saturation": c.novelty_saturation,
+                    "innovation_angles": c.innovation_angles,
+                    "overall_score": c.overall_score,
+                }
+            )
 
         result = {
             "success": True,
@@ -1931,11 +2190,11 @@ async def handle_design_verification_plan(arguments: dict) -> list[TextContent]:
             if status == "rejected":
                 continue  # 跳过已证伪的假设
             hypotheses_text += f"""
-### {h.get('hypothesis_id', '?')}
-机理描述: {h.get('mechanism_description', '')}
-必需变量: {', '.join(h.get('required_variables', []))}
-证伪条件: {', '.join(h.get('falsifiable_conditions', []))}
-预期性能趋势: {h.get('expected_performance_trend', '')}
+### {h.get("hypothesis_id", "?")}
+机理描述: {h.get("mechanism_description", "")}
+必需变量: {", ".join(h.get("required_variables", []))}
+证伪条件: {", ".join(h.get("falsifiable_conditions", []))}
+预期性能趋势: {h.get("expected_performance_trend", "")}
 ---
 """
 
@@ -1961,7 +2220,9 @@ async def handle_design_verification_plan(arguments: dict) -> list[TextContent]:
         # 构建技术路线簇文本
         clusters_text = "暂无技术路线归并" if not clusters_data else ""
         for c in clusters_data:
-            clusters_text += f"- {c.get('mechanism_type', '?')}: {c.get('core_idea', '')}\n"
+            clusters_text += (
+                f"- {c.get('mechanism_type', '?')}: {c.get('core_idea', '')}\n"
+            )
             if c.get("advantages"):
                 clusters_text += f"  优势: {', '.join(c['advantages'])}\n"
             if c.get("limitations"):
@@ -2013,6 +2274,10 @@ async def handle_run_deep_research(arguments: dict) -> list[TextContent]:
     min_year = arguments.get("min_year")
     min_score = arguments.get("min_score", 0.0)
     previous_context = arguments.get("previous_context", "")
+    fetch_full_text, fetch_full_text_source = resolve_fetch_full_text_argument(
+        arguments,
+        context_keys=("goal", "previous_context"),
+    )
 
     logger.info(f"启动深度研究: {goal[:80]}, max_iter={max_iterations}")
 
@@ -2027,6 +2292,7 @@ async def handle_run_deep_research(arguments: dict) -> list[TextContent]:
         if llm_config:
             from core.ai import create_ai_client
             import core.ai as ai_module
+
             ai = create_ai_client(llm_config=llm_config)
             _prev_client = ai_module._ai_client_instance
             ai_module._ai_client_instance = ai
@@ -2039,6 +2305,7 @@ async def handle_run_deep_research(arguments: dict) -> list[TextContent]:
             state = await run_iterative_research(
                 goal=goal,
                 max_iterations=max_iterations,
+                fetch_full_text=fetch_full_text,
                 job_id=job_id,
                 previous_context=previous_context,
                 min_year=min_year,
@@ -2047,6 +2314,7 @@ async def handle_run_deep_research(arguments: dict) -> list[TextContent]:
         finally:
             if _prev_client is not _SENTINEL:
                 import core.ai as ai_module
+
                 ai_module._ai_client_instance = _prev_client
 
         # 序列化完整结果
@@ -2059,6 +2327,8 @@ async def handle_run_deep_research(arguments: dict) -> list[TextContent]:
             "evidence_count": len(state.evidence_set),
             "cluster_count": len(state.method_clusters),
             "cancelled": state.cancelled,
+            "fetch_full_text": fetch_full_text,
+            "fetch_full_text_source": fetch_full_text_source,
         }
 
         # 添加 ProblemSpec
@@ -2067,8 +2337,12 @@ async def handle_run_deep_research(arguments: dict) -> list[TextContent]:
 
         # 添加假设评估结果
         if state.hypothesis_set:
-            result["hypotheses"] = [h.to_dict() for h in state.hypothesis_set.hypotheses]
-            result["active_hypotheses"] = len(state.hypothesis_set.get_active_hypotheses())
+            result["hypotheses"] = [
+                h.to_dict() for h in state.hypothesis_set.hypotheses
+            ]
+            result["active_hypotheses"] = len(
+                state.hypothesis_set.get_active_hypotheses()
+            )
 
         # 添加技术路线簇
         if state.method_clusters:

@@ -24,10 +24,13 @@ logger = logging.getLogger("deep_research")
 
 from typing import Callable, List, Optional
 
+from config.settings import settings
+
 
 async def run_iterative_research(
     goal: str,
     max_iterations: int = 3,
+    fetch_full_text: Optional[bool] = None,
     cancel_callback: Callable[[], bool] = None,
     interaction_callback: Callable[[str, List[str]], str] = None,
     job_id: str = "",
@@ -47,6 +50,7 @@ async def run_iterative_research(
     Args:
         goal: 研究目标
         max_iterations: 最大迭代次数
+        fetch_full_text: 是否抓取全文；None 时跟随环境变量默认值
         cancel_callback: 取消回调
         interaction_callback: 交互回调
         job_id: 任务ID
@@ -63,6 +67,12 @@ async def run_iterative_research(
             raise JobCancelledError("User requested cancellation")
 
     try:
+        fetch_full_text = (
+            settings.DEFAULT_FETCH_FULL_TEXT
+            if fetch_full_text is None
+            else fetch_full_text
+        )
+
         logger.info("=" * 60)
         logger.info(f"🚀 启动迭代式深度研究")
         logger.info(f"   目标: {goal}")
@@ -190,15 +200,18 @@ async def run_iterative_research(
             # P23 Fix: 将同步的 Playwright 调用放入独立线程
             import asyncio
 
-            logger.info("\n📥 阶段 3.5: 全文获取")
-            # [P27] Explicitly pass interaction_callback
-            # [P81] Pass cancel_callback for responsive termination
-            state = await asyncio.to_thread(
-                fetch,
-                state,
-                interaction_callback=interaction_callback,
-                cancel_callback=cancel_callback,
-            )
+            if fetch_full_text:
+                logger.info("\n📥 阶段 3.5: 全文获取")
+                # [P27] Explicitly pass interaction_callback
+                # [P81] Pass cancel_callback for responsive termination
+                state = await asyncio.to_thread(
+                    fetch,
+                    state,
+                    interaction_callback=interaction_callback,
+                    cancel_callback=cancel_callback,
+                )
+            else:
+                logger.info("\n⏭️ 阶段 3.5: 按配置跳过全文获取")
 
             # 检查用户是否取消
             if hasattr(state, "cancelled") and state.cancelled:
@@ -316,7 +329,6 @@ async def run_iterative_research(
 
         # [P32] Save with Chinese filename
         from .result_generator import save_report_with_chinese_name
-        from config.settings import settings
 
         # [P59] Unified Output to PROJECTS_DIR
         # Save to data/projects/{job_id}/

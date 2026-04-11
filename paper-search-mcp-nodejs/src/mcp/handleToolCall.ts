@@ -16,6 +16,10 @@ function jsonTextResponse(text: string) {
   };
 }
 
+function jsonDataResponse(data: unknown) {
+  return jsonTextResponse(JSON.stringify(data, null, 2));
+}
+
 export async function handleToolCall(
   toolNameRaw: string,
   rawArgs: unknown,
@@ -84,7 +88,7 @@ export async function handleToolCall(
         results.push(...platformResults.map((paper: Paper) => PaperFactory.toDict(paper)));
       }
 
-      return jsonTextResponse(`Found ${results.length} papers.\n\n${JSON.stringify(results, null, 2)}`);
+      return jsonDataResponse(results);
     }
 
     case 'search_arxiv': {
@@ -98,13 +102,7 @@ export async function handleToolCall(
         sortOrder
       });
 
-      return jsonTextResponse(
-        `Found ${results.length} arXiv papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'search_webofscience': {
@@ -122,13 +120,7 @@ export async function handleToolCall(
         sortOrder
       } as any);
 
-      return jsonTextResponse(
-        `Found ${results.length} Web of Science papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'search_pubmed': {
@@ -147,13 +139,14 @@ export async function handleToolCall(
       const apiKeyStatus = searchers.pubmed.hasApiKey() ? 'configured' : 'not configured';
       const rateLimit = searchers.pubmed.hasApiKey() ? '10 requests/second' : '3 requests/second';
 
-      return jsonTextResponse(
-        `Found ${results.length} PubMed papers.\n\nAPI Status: ${apiKeyStatus} (${rateLimit})\nRate Limiter: ${rateStatus.availableTokens}/${rateStatus.maxTokens} tokens available\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse({
+        papers: results.map((paper: Paper) => PaperFactory.toDict(paper)),
+        meta: {
+          apiStatus: apiKeyStatus,
+          rateLimit,
+          rateLimiter: rateStatus
+        }
+      });
     }
 
     case 'search_biorxiv': {
@@ -164,13 +157,7 @@ export async function handleToolCall(
         category
       });
 
-      return jsonTextResponse(
-        `Found ${results.length} bioRxiv papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'search_medrxiv': {
@@ -181,13 +168,7 @@ export async function handleToolCall(
         category
       });
 
-      return jsonTextResponse(
-        `Found ${results.length} medRxiv papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'search_semantic_scholar': {
@@ -204,26 +185,21 @@ export async function handleToolCall(
         : 'not configured (using free tier)';
       const rateLimit = searchers.semantic.hasApiKey() ? '200 requests/minute' : '20 requests/minute';
 
-      return jsonTextResponse(
-        `Found ${results.length} Semantic Scholar papers.\n\nAPI Status: ${apiKeyStatus} (${rateLimit})\nRate Limiter: ${rateStatus.availableTokens}/${rateStatus.maxTokens} tokens available\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse({
+        papers: results.map((paper: Paper) => PaperFactory.toDict(paper)),
+        meta: {
+          apiStatus: apiKeyStatus,
+          rateLimit,
+          rateLimiter: rateStatus
+        }
+      });
     }
 
     case 'search_iacr': {
       const { query, maxResults, fetchDetails } = args;
       const results = await searchers.iacr.search(query, { maxResults, fetchDetails });
 
-      return jsonTextResponse(
-        `Found ${results.length} IACR ePrint papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'download_paper': {
@@ -252,13 +228,7 @@ export async function handleToolCall(
         author
       } as any);
 
-      return jsonTextResponse(
-        `Found ${results.length} Lanfanshu (烂番薯) papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'get_paper_by_doi': {
@@ -289,9 +259,9 @@ export async function handleToolCall(
       }
 
       if (results.length === 0) {
-        return jsonTextResponse(`No paper found with DOI: ${doi}`);
+        return jsonDataResponse([]);
       }
-      return jsonTextResponse(`Found ${results.length} paper(s) with DOI ${doi}:\n\n${JSON.stringify(results, null, 2)}`);
+      return jsonDataResponse(results);
     }
 
     case 'search_scihub': {
@@ -341,13 +311,7 @@ export async function handleToolCall(
         openAccess
       });
 
-      return jsonTextResponse(
-        `Found ${results.length} ScienceDirect papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'search_springer': {
@@ -366,13 +330,7 @@ export async function handleToolCall(
         type
       } as any);
 
-      return jsonTextResponse(
-        `Found ${results.length} Springer papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'search_wiley': {
@@ -402,13 +360,7 @@ export async function handleToolCall(
         documentType
       } as any);
 
-      return jsonTextResponse(
-        `Found ${results.length} Scopus papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'search_crossref': {
@@ -421,13 +373,7 @@ export async function handleToolCall(
         sortOrder
       });
 
-      return jsonTextResponse(
-        `Found ${results.length} Crossref papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'search_openalex': {
@@ -439,13 +385,7 @@ export async function handleToolCall(
         sortOrder
       });
 
-      return jsonTextResponse(
-        `Found ${results.length} OpenAlex papers.\n\n${JSON.stringify(
-          results.map((paper: Paper) => PaperFactory.toDict(paper)),
-          null,
-          2
-        )}`
-      );
+      return jsonDataResponse(results.map((paper: Paper) => PaperFactory.toDict(paper)));
     }
 
     case 'get_platform_status': {
@@ -494,7 +434,7 @@ export async function handleToolCall(
         });
       }
 
-      return jsonTextResponse(`Platform Status:\n\n${JSON.stringify(statusInfo, null, 2)}`);
+      return jsonDataResponse(statusInfo);
     }
 
     default:

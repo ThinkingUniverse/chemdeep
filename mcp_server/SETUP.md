@@ -32,7 +32,9 @@
       "command": "python",
       "args": ["G:\\LLM\\chemdeep\\mcp_server\\server.py"],
       "env": {
-        "PYTHONPATH": "G:\\LLM\\chemdeep"
+        "PYTHONPATH": "G:\\LLM\\chemdeep",
+        "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/",
+        "CHEMDEEP_LANFANSHU_MIRROR_URLS": ""
       }
     }
   }
@@ -50,7 +52,9 @@
       "command": "python",
       "args": ["G:\\LLM\\chemdeep\\mcp_server\\server.py"],
       "env": {
-        "PYTHONPATH": "G:\\LLM\\chemdeep"
+        "PYTHONPATH": "G:\\LLM\\chemdeep",
+        "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/",
+        "CHEMDEEP_LANFANSHU_MIRROR_URLS": ""
       }
     }
   }
@@ -101,7 +105,9 @@ python mcp_server\server.py
       "command": "C:\\Python311\\python.exe",
       "args": ["G:\\LLM\\chemdeep\\mcp_server\\server.py"],
       "env": {
-        "PYTHONPATH": "G:\\LLM\\chemdeep"
+        "PYTHONPATH": "G:\\LLM\\chemdeep",
+        "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/",
+        "CHEMDEEP_LANFANSHU_MIRROR_URLS": ""
       }
     }
   }
@@ -119,7 +125,9 @@ python mcp_server\server.py
       "command": "G:\\LLM\\chemdeep\\.venv\\Scripts\\python.exe",
       "args": ["G:\\LLM\\chemdeep\\mcp_server\\server.py"],
       "env": {
-        "PYTHONPATH": "G:\\LLM\\chemdeep"
+        "PYTHONPATH": "G:\\LLM\\chemdeep",
+        "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/",
+        "CHEMDEEP_LANFANSHU_MIRROR_URLS": ""
       }
     }
   }
@@ -157,7 +165,33 @@ python mcp_server\server.py
         "PYTHONPATH": "G:\\LLM\\chemdeep",
         "CHEMDEEP_OPENAI_API_KEY": "sk-your-api-key",
         "CHEMDEEP_OPENAI_API_BASE": "https://your-api-base/v1",
-        "CHEMDEEP_OPENAI_MODEL": "gpt-4o"
+        "CHEMDEEP_OPENAI_MODEL": "gpt-4o",
+        "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/",
+        "CHEMDEEP_LANFANSHU_MIRROR_URLS": ""
+      }
+    }
+  }
+}
+```
+
+### 5. 镜像导航地址配置
+
+- `CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS` 填“镜像导航页集合”，例如 `https://ac.scmor.com/`。
+- `CHEMDEEP_LANFANSHU_MIRROR_URLS` 填可选的直接镜像地址集合，用于补充或兜底。
+- 两个变量都支持多个值，使用逗号或分号分隔。
+
+示例：
+
+```json
+{
+  "mcpServers": {
+    "chemdeep": {
+      "command": "python",
+      "args": ["G:\\LLM\\chemdeep\\mcp_server\\server.py"],
+      "env": {
+        "PYTHONPATH": "G:\\LLM\\chemdeep",
+        "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS": "https://ac.scmor.com/;https://your-nav.example.com/",
+        "CHEMDEEP_LANFANSHU_MIRROR_URLS": "https://scholar.lanfanshu.cn,https://sc.panda985.com"
       }
     }
   }

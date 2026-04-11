@@ -22,8 +22,9 @@ import { isMCPMode, logDebug } from './utils/Logger.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load environment variables from config directory
-dotenv.config({ path: join(__dirname, '../../config/paper-search-mcp-nodejs.env') });
+// Load shared project env first, then MCP-specific env as override.
+dotenv.config({ path: join(__dirname, '../../config/.env') });
+dotenv.config({ path: join(__dirname, '../../config/paper-search-mcp-nodejs.env'), override: true });
 
 const server = new Server(
   {

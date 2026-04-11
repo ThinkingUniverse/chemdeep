@@ -623,20 +623,41 @@ class LanfanshuSearcher:
     """
     烂番薯学术搜索
     使用浏览器自动化访问烂番薯学术
+    支持镜像优先策略：先尝试多个 Google Scholar 镜像，失败时回退到 xueshu.lanfanshu.cn
     """
 
     def __init__(self, notify_callback: Callable[[str], None] | None = None):
-        self.notify = notify_callback or (lambda x: print(x))
+        # 修复 Windows GBK 编码问题
+        def safe_print(msg: str) -> None:
+            try:
+                print(msg)
+            except UnicodeEncodeError:
+                # 如果无法编码，移除 emoji 和特殊字符
+                import re
+
+                clean_msg = re.sub(r"[^\x00-\x7F]+", "", msg)
+                print(clean_msg)
+
+        self.notify = notify_callback or safe_print
         self.profile_dir = settings.PROFILE_DIR
         self.library_dir = settings.LIBRARY_DIR
         self.results_dir = self.library_dir / "lanfanshu_results"
         self.results_dir.mkdir(parents=True, exist_ok=True)
+
+        # 初始化镜像管理器
+        from core.mirror_manager import MirrorManager
+
+        self.mirror_manager = MirrorManager()
+        self.fallback_url = (
+            "https://xueshu.lanfanshu.cn"  # 原始 lanfanshu URL 作为最终回退
+        )
 
     def search(
         self, query: str, max_results: int = 50, headless: bool = False
     ) -> dict[str, Any]:
         """
         执行烂番薯学术搜索
+        使用镜像优先策略：先尝试多个 Google Scholar 镜像，失败时回退到 xueshu.lanfanshu.cn
 
         返回:
             {
@@ -659,8 +680,85 @@ class LanfanshuSearcher:
                 "count": 0,
             }
 
+        # [P-LFS] 查询预处理：截断、离子标准化、去停用词
+        from utils.query_sanitizer import sanitize_lanfanshu_query
+
+        query = sanitize_lanfanshu_query(query)
+
         logger.info(f"开始烂番薯学术搜索: {query[:100]}...")
         self.notify("🔍 正在启动浏览器访问烂番薯学术...")
+
+        result = {"success": False, "papers": [], "count": 0, "error": None}
+
+        # 策略 1: 尝试使用镜像管理器中的镜像
+        working_mirrors = self.mirror_manager.get_working_mirrors()
+        if working_mirrors:
+            logger.info(f"Trying {len(working_mirrors)} working mirrors...")
+
+            for mirror in working_mirrors:
+                try:
+                    logger.info(
+                        f"Attempting search with mirror: {mirror.name} ({mirror.url})"
+                    )
+                    self.notify(f"📡 尝试镜像: {mirror.name}...")
+
+                    mirror_result = self._search_with_url(
+                        query, max_results, headless, mirror.url, mirror.scholar_path
+                    )
+
+                    if mirror_result["success"] and mirror_result["count"] > 0:
+                        # 搜索成功，标记镜像为成功
+                        self.mirror_manager.mark_mirror_success(mirror.url, 0)
+                        logger.info(
+                            f"Mirror {mirror.name} returned {mirror_result['count']} papers"
+                        )
+                        self.notify(
+                            f"✅ 镜像 {mirror.name} 找到 {mirror_result['count']} 篇论文"
+                        )
+                        return mirror_result
+                    else:
+                        # 镜像返回空结果或失败，标记为失败
+                        self.mirror_manager.mark_mirror_failed(mirror.url)
+                        logger.warning(
+                            f"Mirror {mirror.name} failed or returned no results, trying next..."
+                        )
+                        self.notify(f"⚠️ 镜像 {mirror.name} 失败，尝试下一个...")
+
+                except Exception as e:
+                    # 镜像搜索失败，标记为失败
+                    self.mirror_manager.mark_mirror_failed(mirror.url)
+                    logger.warning(f"Mirror {mirror.name} failed: {e}, trying next...")
+                    self.notify(f"⚠️ 镜像 {mirror.name} 失败: {e}，尝试下一个...")
+
+        # 策略 2: 所有镜像都失败，回退到原始 lanfanshu URL
+        logger.info("All mirrors failed, falling back to original lanfanshu URL...")
+        self.notify("📡 回退到原始 lanfanshu URL...")
+
+        return self._search_with_url(
+            query, max_results, headless, self.fallback_url, "/scholar"
+        )
+
+    def _search_with_url(
+        self,
+        query: str,
+        max_results: int,
+        headless: bool,
+        base_url: str,
+        scholar_path: str,
+    ) -> dict[str, Any]:
+        """使用指定 URL 进行搜索"""
+        try:
+            from playwright.sync_api import (
+                sync_playwright,
+                TimeoutError as PlaywrightTimeout,
+            )
+        except ImportError:
+            return {
+                "success": False,
+                "error": "Playwright 未安装",
+                "papers": [],
+                "count": 0,
+            }
 
         result = {"success": False, "papers": [], "count": 0, "error": None}
 
@@ -702,13 +800,13 @@ class LanfanshuSearcher:
                 page = context.new_page()
                 page.set_viewport_size({"width": 1920, "height": 1080})
 
-                # 访问烂番薯学术
-                self.notify("📡 正在访问烂番薯学术...")
+                # 访问搜索 URL
+                self.notify("📡 正在访问搜索页面...")
 
                 # 使用编码后的查询
                 from urllib.parse import quote
 
-                search_url = f"https://xueshu.lanfanshu.cn/scholar?hl=zh-CN&as_sdt=0%2C5&q={quote(query)}&btnG="
+                search_url = f"{base_url}{scholar_path}?hl=zh-CN&as_sdt=0%2C5&q={quote(query)}&btnG="
                 page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
 
                 time.sleep(3)

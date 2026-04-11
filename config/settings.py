@@ -6,6 +6,14 @@ import os
 load_dotenv(Path(__file__).parent / ".env")
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse a boolean environment variable with common truthy values."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 class Settings:
     # ========== Telegram 配置 ==========
     TELEGRAM_TOKEN = os.getenv("CHEMDEEP_TELEGRAM_TOKEN")
@@ -57,13 +65,10 @@ class Settings:
 
     # ========== 浏览器配置 ==========
     RATE_SECONDS = int(os.getenv("CHEMDEEP_RATE_SECONDS", "1"))
-    HEADLESS = os.getenv("CHEMDEEP_HEADLESS", "0").lower() in ("1", "true", "yes")
+    HEADLESS = _env_bool("CHEMDEEP_HEADLESS", False)
     BROWSER_CHANNEL = os.getenv("CHEMDEEP_BROWSER_CHANNEL", "msedge")
-    USE_REAL_BROWSER = os.getenv("CHEMDEEP_USE_REAL_BROWSER", "1").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    USE_REAL_BROWSER = _env_bool("CHEMDEEP_USE_REAL_BROWSER", True)
+    DEFAULT_FETCH_FULL_TEXT = _env_bool("CHEMDEEP_DEFAULT_FETCH_FULL_TEXT", False)
 
     # [P63] Concurrency Settings
     SEARCH_CONCURRENCY = int(os.getenv("CHEMDEEP_SEARCH_CONCURRENCY", "6"))
@@ -104,15 +109,19 @@ class Settings:
     )  # Ollama 不需要真实 key
 
     # ========== 搜索配置 ==========
-    ENABLE_GOOGLE_SCHOLAR = os.getenv("CHEMDEEP_ENABLE_GOOGLE_SCHOLAR", "0") == "1"
+    ENABLE_GOOGLE_SCHOLAR = _env_bool("CHEMDEEP_ENABLE_GOOGLE_SCHOLAR", False)
     GOOGLE_SCHOLAR_DELAY = int(os.getenv("CHEMDEEP_GOOGLE_SCHOLAR_DELAY", "5"))
 
     # 烂番薯学术配置
-    ENABLE_LANFANSHU = os.getenv("CHEMDEEP_ENABLE_LANFANSHU", "0") == "1"
+    ENABLE_LANFANSHU = _env_bool("CHEMDEEP_ENABLE_LANFANSHU", False)
     LANFANSHU_DELAY = int(os.getenv("CHEMDEEP_LANFANSHU_DELAY", "5"))
+    LANFANSHU_MIRROR_NAV_URLS = os.getenv(
+        "CHEMDEEP_LANFANSHU_MIRROR_NAV_URLS", "https://ac.scmor.com/"
+    )
+    LANFANSHU_MIRROR_URLS = os.getenv("CHEMDEEP_LANFANSHU_MIRROR_URLS", "")
 
     # 推理功能配置
-    ENABLE_REASONING = os.getenv("CHEMDEEP_ENABLE_REASONING", "1") == "1"
+    ENABLE_REASONING = _env_bool("CHEMDEEP_ENABLE_REASONING", True)
 
     # MCP 配置
     MCP_SERVER_DIR = Path(
@@ -174,6 +183,7 @@ class Settings:
             f"  Rate: {cls.RATE_SECONDS}s",
             f"  Headless: {cls.HEADLESS}",
             f"  Channel: {cls.BROWSER_CHANNEL}",
+            f"  Default Full Text Fetch: {cls.DEFAULT_FETCH_FULL_TEXT}",
         ]
         return "\n".join(lines)
 

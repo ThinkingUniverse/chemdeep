@@ -234,6 +234,7 @@ async def _dispatch_search(
 
     source = query.source.lower()
     keywords = query.keywords
+    query_min_year = getattr(query, 'yearLow', None) or getattr(query, 'year', None)
 
     # 辅助函数：将同步 MCP 调用包装为 Async
     async def run_sync(func, *args, **kwargs):
@@ -248,14 +249,22 @@ async def _dispatch_search(
         return await run_sync(mcp.search_wos, keywords, max_results=max_results)
     elif source == "scholar":
         return await run_sync(
-            mcp.search_google_scholar, keywords, max_results=max_results
+            mcp.search_google_scholar,
+            keywords,
+            max_results=max_results,
+            yearLow=query_min_year,
         )
     elif source == "lanfanshu":
         # 烂番薯学术搜索
-        return await run_sync(mcp.search_lanfanshu, keywords, max_results=max_results)
+        return await run_sync(
+            mcp.search_lanfanshu,
+            keywords,
+            max_results=max_results,
+            yearLow=query_min_year,
+        )
     else:
         # 默认使用混合搜索
-        return await mcp.search_hybrid(keywords, max_results=max_results)
+        return await run_sync(mcp.search_hybrid, keywords, max_results=max_results)
 
 
 # ============================================================

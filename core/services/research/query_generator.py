@@ -165,11 +165,10 @@ def generate_initial_queries(
             )
             if query.keywords:
                 query_set.add_query(query)
-        logger.info(f"✅ 生成 {len(query_set.queries)} 个检索查询")
     else:
         # Fallback: 基于变量和指标构造基础查询
         logger.warning("⚠️ LLM查询生成失败，使用回退策略")
-        base_keywords = spec.research_object
+        base_keywords = spec.research_object or spec.goal
         for var in spec.control_variables[:2]:
             query_set.add_query(
                 SearchQuery(
@@ -187,6 +186,28 @@ def generate_initial_queries(
                 )
             )
 
+    # 确保至少包含一个 lanfanshu 查询（国内友好源）
+    if not any(q.source.lower() == "lanfanshu" for q in query_set.queries):
+        fallback_lfs = spec.research_object or spec.goal
+        if not fallback_lfs:
+            fallback_lfs = "organic synthesis new method"
+
+        # [P-LFS] 直接使用简洁的英文关键词，不追加中文填充词
+        # 下游 sanitize_lanfanshu_query() 会进一步清理
+        lfs_keywords = fallback_lfs
+
+        query_set.add_query(
+            SearchQuery(
+                keywords=lfs_keywords,
+                source="lanfanshu",
+                variable_focus="domestic coverage",
+                metric_focus="recency",
+                priority=1,
+                bucket="Broad",
+            )
+        )
+
+    logger.info(f"✅ 生成 {len(query_set.queries)} 个检索查询")
     return query_set
 
 

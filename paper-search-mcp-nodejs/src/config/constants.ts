@@ -8,7 +8,7 @@
  */
 export const TIMEOUTS = {
   /** Default timeout for API requests */
-  DEFAULT: 30000,
+  DEFAULT: 45000,
   /** Extended timeout for slow APIs */
   EXTENDED: 60000,
   /** Short timeout for health checks */

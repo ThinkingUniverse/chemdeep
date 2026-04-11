@@ -92,6 +92,25 @@ class MCPSearcher:
                 if item.get("type") == "text":
                     text_content += item.get("text", "")
 
+            stripped = text_content.strip()
+            if stripped.startswith("[") or stripped.startswith("{"):
+                try:
+                    data = json.loads(stripped)
+                    if isinstance(data, dict) and isinstance(data.get("papers"), list):
+                        return {
+                            "success": True,
+                            "papers": data.get("papers", []),
+                            "meta": data.get("meta"),
+                        }
+                    return {
+                        "success": True,
+                        "papers": data if isinstance(data, list) else [data],
+                    }
+                except json.JSONDecodeError as e:
+                    logger.warning(
+                        f"MCP direct JSON parse failed: {e}. Content: {text_content[:200]}..."
+                    )
+
             # 尝试提取 JSON
             # 格式通常是 "Found X papers.\n\n[...]"
             json_start = text_content.find("[")
@@ -107,6 +126,12 @@ class MCPSearcher:
 
                 try:
                     data = json.loads(json_str)
+                    if isinstance(data, dict) and isinstance(data.get("papers"), list):
+                        return {
+                            "success": True,
+                            "papers": data.get("papers", []),
+                            "meta": data.get("meta"),
+                        }
                     return {
                         "success": True,
                         "papers": data if isinstance(data, list) else [data],

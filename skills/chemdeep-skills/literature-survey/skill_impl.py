@@ -1,9 +1,10 @@
 from .._common.interface import SkillInterface
 from .mcp_pipeline import ChemDeepPipeline
 
+
 class LiteratureSurveySkill(SkillInterface):
     def __init__(self):
-        super().__init__(name='literature-survey')
+        super().__init__(name="literature-survey")
         self.pipeline = ChemDeepPipeline()
 
     def _run(self, query, language, field, mode, **kwargs):
@@ -12,15 +13,17 @@ class LiteratureSurveySkill(SkillInterface):
             query=query,
             language=language,
             field=field,
-            min_year=kwargs.get('min_year'),
-            max_results=kwargs.get('max_results', 20),
-            min_score=kwargs.get('min_score', 5)
+            min_year=kwargs.get("min_year"),
+            max_results=kwargs.get("max_results", 20),
+            min_score=kwargs.get("min_score", 5),
+            fetch_full_text=kwargs.get("fetch_full_text", False),
+            max_full_texts=kwargs.get("max_full_texts", 3),
         )
         return {
-            'skill': self.name,
-            'query': query,
-            'language': language,
-            'field': field,
-            'mode': mode,
-            'result': result
+            "skill": self.name,
+            "query": query,
+            "language": language,
+            "field": field,
+            "mode": mode,
+            "result": result,
         }
