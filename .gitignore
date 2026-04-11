@@ -110,6 +110,8 @@ mcp-websearch/.venv/
 
 # --- Project-specific local scratch/debug ---
 .cursorrules
+.learnings/
+tmp_*.txt
 
 # Preserve nested project ignore rules and examples
 !paper-search-mcp-nodejs/.gitignore

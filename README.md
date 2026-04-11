@@ -2,6 +2,64 @@
 
 ChemDeep 是一个基于 AI Agent 的深度研究系统，专为化学领域的文献调研、机理假设生成和证据验证设计。它集成了 Telegram 机器人接口、浏览器自动化 (Playwright/Edge) 和多源搜索 (MCP) 能力。
 
+除了 Telegram Bot，ChemDeep 也可以作为本地研究工具链接入支持 MCP / Skills / CLI 的智能客户端，例如 Codex CLI、VS Code 中的 AI 扩展、Cherry Studio、OpenClaw 等。你可以把它作为：
+
+- 一个命令行研究助手，通过 `python main.py ...` 执行搜索、调研与抓取
+- 一个 MCP Server，供支持工具调用的客户端直接连接
+- 一组 Skills，供支持 skill/agent 编排的平台复用科研工作流
+
+## MCP 与 Skills
+
+ChemDeep 的能力分成两层：
+
+- `MCP Server`：提供论文搜索、论文评分、全文抓取、PDF 下载、研究目标形式化、机理假设生成、证据提取、研究空白分析等工具接口
+- `Skills`：在 MCP 工具之上封装科研工作流，适合在客户端里作为默认入口直接调用
+
+推荐关系：
+
+- 日常搜索、相关工作梳理、综述整理：优先使用 `literature-survey`
+- 需要完整多轮分析和研究报告：优先使用 `deep-research`
+- 只有在你明确知道要调哪个工具时，再直接调用裸 MCP 工具
+
+当前提供的主要 Skills 位于 `skills/chemdeep-skills/`：
+
+- `literature-survey`：文献搜索、筛选、调研汇总
+- `hypothesis-generation`：机理假设生成与评估
+- `verification-design`：实验/计算验证方案设计
+- `deep-research`：完整深度调研工作流
+
+更详细的 MCP 说明见 `mcp_server/README.md`，Skills 安装与编排说明见 `skills/README.md`。
+
+## 在 Codex CLI / VS Code / Cherry Studio 中使用
+
+如果你的客户端支持本地命令行工具、MCP Server 或 Skills，ChemDeep 可以直接作为本地研究后端接入。
+
+常见接入方式：
+
+- `Codex CLI / 其他 CLI Agent`：在项目目录中直接运行 `python main.py search ...`、`python main.py research ...`
+- `VS Code`：通过支持本地命令、MCP 或 agent tooling 的扩展，把 `mcp_server/server.py` 注册为本地 MCP 服务
+- `Cherry Studio / OpenClaw`：注册 ChemDeep MCP Server，并把 `skills/chemdeep-skills/` 中的 skills 安装到客户端
+
+最常见的 MCP 启动方式是：
+
+```bash
+python G:\LLM\chemdeep\mcp_server\server.py
+```
+
+或者使用 `uv`：
+
+```bash
+uv run --directory G:\LLM\chemdeep\mcp_server python server.py
+```
+
+接入这些客户端时，建议同时准备：
+
+- `PYTHONPATH=G:\LLM\chemdeep`
+- `CHEMDEEP_OPENAI_API_KEY` 或兼容模型配置
+- `CHEMDEEP_DEFAULT_FETCH_FULL_TEXT=0/1`（按需控制是否默认抓全文）
+
+如果你主要通过支持 agent / tool use 的编辑器工作，推荐把 ChemDeep 看作“本地科研 MCP + Skills 后端”，而不是只作为 Telegram Bot 使用。
+
 ## 🚀 快速开始 (Quick Start)
 
 ### 1. 准备环境
